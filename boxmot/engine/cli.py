@@ -73,7 +73,7 @@ def core_options(func):
         click.option('--ci', is_flag=True,
                      help='reuse existing runs in CI (no UI)'),
         click.option('--tracking-method', type=str, default='deepocsort',
-                     help='deepocsort, botsort, strongsort, ...'),
+                     help='deepocsort, botsort, strongsort, preloadsort, ...'),
         click.option('--verbose', is_flag=True,
                      help='print detailed logs'),
         click.option('--agnostic-nms', is_flag=True,
@@ -103,7 +103,12 @@ def core_options(func):
         click.option('--per-class', is_flag=True,
                      help='track each class separately'),
         click.option('--target-id', type=int, default=None,
-                     help='ID to highlight in green')
+                     help='ID to highlight in green'),
+        # PreloadSORT-specific options
+        click.option('--registered-images', type=Path, default=None,
+                     help='path to folder containing registered person images (for PreloadSORT)'),
+        click.option('--match-threshold', type=float, default=0.5,
+                     help='similarity threshold for matching with registered images (for PreloadSORT, 0.0-1.0)'),
     ]
     for opt in reversed(options):
         func = opt(func)
@@ -240,7 +245,7 @@ class CommandFirstGroup(click.Group):
         formatter.width = 120  # Increase formatter width to prevent wrapping
         with formatter.indentation():
             formatter.write_text("Where  MODE (required) is one of [track, eval, tune, generate, export]")
-            formatter.write_text("       DETECTOR (optional) YOLO model like yolov8n, yolov9c, yolo11m, yolox_x")
+            formatter.write_text("       DETECTOR (optional) YOLO model like yolov8n, yolov9c, yolo11m, yolo26n, yolox_x")
             formatter.write_text("       REID (optional) ReID model like osnet_x0_25_msmt17, mobilenetv2_x1_4")
             formatter.write_text("       TRACKER (optional) is one of [deepocsort, botsort, bytetrack, strongsort, ocsort, hybridsort]")
             formatter.write_text("       ARGS (optional) 'arg=value' pairs like 'source=0' 'imgsz=640' that override defaults.")

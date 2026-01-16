@@ -87,7 +87,7 @@ Where:
   MODE      (required) one of [track, eval, tune, generate, export]
   DETECTOR  (optional) YOLO model like yolov8n, yolov9c, yolo11m, yolox_x
   REID      (optional) ReID model like osnet_x0_25_msmt17, mobilenetv2_x1_4
-  TRACKER   (optional) one of [deepocsort, botsort, bytetrack, strongsort, ocsort, hybridsort, boosttrack]
+  TRACKER   (optional) one of [deepocsort, botsort, bytetrack, strongsort, ocsort, hybridsort, boosttrack, preloadsort]
   ARGS      (optional) 'arg=value' pairs that override defaults
 ```
 
@@ -212,6 +212,9 @@ boxmot track yolov8n osnet_x0_25_msmt17 bytetrack
 boxmot track yolov8n osnet_x0_25_msmt17 botsort
 boxmot track yolov8n osnet_x0_25_msmt17 boosttrack
 boxmot track yolov8n osnet_x0_25_msmt17 hybridsort
+
+# PreloadSORT: Track only pre-registered persons
+boxmot track yolov8n osnet_x0_25_msmt17 preloadsort --registered-images ./images --match-threshold 0.5
 ```
 
 </details>
@@ -262,6 +265,62 @@ boxmot track yolov8s --source 0 --classes 16 17  # Track cats and dogs only
 ```
 
 [Here](https://tech.amikelive.com/node-718/what-object-categories-labels-are-in-coco-dataset/) is a list of all the possible objects that a YOLOv8 model trained on MS COCO can detect. Notice that the indexing for the classes in this repo starts at zero
+
+</details>
+
+<details>
+<summary>PreloadSORT: Track only pre-registered persons</summary>
+
+PreloadSORT is a specialized tracking method that tracks only pre-registered individuals using reference images. It combines BotSORT's robust tracking capabilities with ReID-based person matching.
+
+**Key Features:**
+- **Selective Tracking**: Only tracks persons whose appearance matches pre-registered images
+- **Fixed ID Assignment**: Assigns registered IDs to matched individuals
+- **Winner-take-all Matching**: Compares detections with all registered images and uses the highest similarity
+- **Scene Change Detection**: Automatically resets tracks when camera scene changes are detected
+- **Camera Motion Compensation**: Inherits BotSORT's CMC for handling camera movement
+
+**Usage:**
+
+```bash
+# Basic usage
+boxmot track yolov8n osnet_x0_25_msmt17 preloadsort \
+  --source video.mp4 \
+  --registered-images ./images \
+  --match-threshold 0.5
+
+# With scene change detection
+boxmot track yolov8n osnet_x0_25_msmt17 preloadsort \
+  --source video.mp4 \
+  --registered-images ./images \
+  --match-threshold 0.5 \
+  --save --show
+```
+
+**Registered Images Folder Structure:**
+
+```
+images/
+├── 1/              # ID=1 (folder name is integer)
+│   ├── front.png
+│   ├── side.png
+│   └── back.png
+├── 2/              # ID=2
+│   └── photo.png
+└── person_A/       # ID=3 (assigned sequentially if not integer)
+    └── image.png
+```
+
+**Parameters:**
+- `--registered-images`: Path to folder containing registered person images (required for PreloadSORT)
+- `--match-threshold`: Similarity threshold for matching (0.0-1.0, default: 0.5)
+
+**How it works:**
+1. Loads reference images and extracts ReID features for each registered person
+2. For each detection, compares ReID features with all registered images
+3. Only tracks detections that match registered persons above the threshold
+4. Uses BotSORT's temporal tracking to maintain ID consistency across frames
+5. Automatically resets tracks when scene changes are detected
 
 </details>
 

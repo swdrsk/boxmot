@@ -5,7 +5,7 @@ import yaml
 
 from boxmot.utils import TRACKER_CONFIGS
 
-REID_TRACKERS = ["strongsort", "botsort", "deepocsort", "hybridsort", "boosttrack"]
+REID_TRACKERS = ["strongsort", "botsort", "deepocsort", "hybridsort", "boosttrack", "preloadsort"]
 
 TRACKER_MAPPING = {
     "strongsort": "boxmot.trackers.strongsort.strongsort.StrongSort",
@@ -15,6 +15,7 @@ TRACKER_MAPPING = {
     "deepocsort": "boxmot.trackers.deepocsort.deepocsort.DeepOcSort",
     "hybridsort": "boxmot.trackers.hybridsort.hybridsort.HybridSort",
     "boosttrack": "boxmot.trackers.boosttrack.boosttrack.BoostTrack",
+    "preloadsort": "boxmot.trackers.preloadsort.preloadsort.PreloadSort",
 }
 
 
@@ -31,6 +32,8 @@ def create_tracker(
     half=None,
     per_class=None,
     evolve_param_dict=None,
+    registered_images_path=None,
+    match_threshold=None,
 ):
     """
     Creates and returns an instance of the specified tracker type.
@@ -43,6 +46,8 @@ def create_tracker(
     - half: Boolean indicating whether to use half-precision.
     - per_class: Boolean for class-specific tracking (optional).
     - evolve_param_dict: A dictionary of parameters for evolving the tracker.
+    - registered_images_path: Path to registered images folder (for PreloadSORT).
+    - match_threshold: Similarity threshold for matching (for PreloadSORT).
 
     Returns:
     - An instance of the selected tracker.
@@ -81,6 +86,13 @@ def create_tracker(
     # Tracker-specific adjustments
     if tracker_type == "strongsort":
         tracker_args.pop("per_class", None)
+    
+    # PreloadSORT-specific parameters
+    if tracker_type == "preloadsort":
+        if registered_images_path is not None:
+            tracker_args["registered_images_path"] = registered_images_path
+        if match_threshold is not None:
+            tracker_args["match_threshold"] = match_threshold
 
     # Dynamically import and instantiate the correct tracker class
     module_path, class_name = TRACKER_MAPPING[tracker_type].rsplit(".", 1)

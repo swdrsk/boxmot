@@ -69,14 +69,25 @@ def on_predict_start(predictor, args, timing_stats=None):
     # Ensure at least 1 tracker is created (bs might be 0 for some sources)
     batch_size = max(1, predictor.dataset.bs)
     for i in range(batch_size):
-        tracker = create_tracker(
-            args.tracking_method,
-            tracking_config,
-            args.reid_model,
-            predictor.device,
-            args.half,
-            args.per_class,
-        )
+        # Prepare kwargs for create_tracker
+        tracker_kwargs = {
+            'tracker_type': args.tracking_method,
+            'tracker_config': tracking_config,
+            'reid_weights': args.reid_model,
+            'device': predictor.device,
+            'half': args.half,
+            'per_class': args.per_class,
+        }
+        
+        # Add PreloadSORT-specific parameters if applicable
+        if args.tracking_method == 'preloadsort':
+            if hasattr(args, 'registered_images') and args.registered_images is not None:
+                tracker_kwargs['registered_images_path'] = args.registered_images
+            if hasattr(args, 'match_threshold') and args.match_threshold is not None:
+                tracker_kwargs['match_threshold'] = args.match_threshold
+        
+        tracker = create_tracker(**tracker_kwargs)
+        
         # set target_id if user passed it
         if args.target_id is not None:
             tracker.target_id = args.target_id
