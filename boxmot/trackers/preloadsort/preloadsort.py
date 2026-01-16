@@ -1,6 +1,7 @@
 # Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
 from pathlib import Path
+from boxmot.utils import logger as LOGGER
 
 import numpy as np
 import torch
@@ -126,6 +127,11 @@ class PreloadSort(BaseTracker):
         # Scene change detection
         self.prev_frame = None
         self.scene_change_threshold = 0.3  # Threshold for detecting scene change
+        
+        # Optimization settings
+        self.reverify_interval = 10  # Frames
+        self.static_threshold = 30   # Frames
+        self.static_movement_threshold = 2.0  # Pixel movement to be considered "static"
         
         if registered_images_path:
             self._load_registered_images(registered_images_path)
@@ -254,7 +260,73 @@ class PreloadSort(BaseTracker):
         self.removed_stracks.clear()
         # Note: frame_count is NOT reset to maintain timeline continuity
 
+    def _reverify_track(self, track: STrack, img: np.ndarray) -> bool:
+        """
+        Re-verify if the track still matches the registered person's appearance.
+        Returns True if verified, False if identity is lost.
+        """
+        if not hasattr(track, 'registered_id') or track.registered_id is None:
+            return True # Should not happen in PreloadSort
+            
+        # Get current track image
+        x1, y1, x2, y2 = map(int, track.xyxy)
+        h, w = img.shape[:2]
+        x1, y1 = max(0, x1), max(0, y1)
+        x2, y2 = min(w, x2), min(h, y2)
         
+        if x2 <= x1 or y2 <= y1:
+            return False
+            
+        track_img = img[y1:y2, x1:x2]
+        # Extract features for current track area
+        # Note: Re-using the model logic from BaseTracker/PreloadSort
+        bbox = np.array([[0, 0, track_img.shape[1], track_img.shape[0]]])
+        current_emb = self.model.get_features(bbox, track_img)[0]
+        current_emb /= np.linalg.norm(current_emb)
+        
+        # Compare with registered embeddings
+        reg_embs = self.registered_ids.get(track.registered_id, [])
+        max_sim = -1
+        for reg_emb in reg_embs:
+            sim = np.dot(current_emb, reg_emb)
+            if sim > max_sim:
+                max_sim = sim
+        
+        # If similarity drops significantly below match_threshold, we lost the identity
+        # Use a slightly more lenient threshold for re-verification to avoid flickering
+        reverify_thresh = self.match_threshold * 0.8
+        
+        is_valid = max_sim >= reverify_thresh
+        if not is_valid:
+            LOGGER.info(f"Identity lost for track {track.id} (registered_id: {track.registered_id}). Similarity: {max_sim:.3f}")
+        
+        return is_valid
+
+    def _check_ghost_track(self, track: STrack) -> bool:
+        """
+        Check if the track is a 'ghost' (stuck on background or non-moving object).
+        Returns True if it's a ghost.
+        """
+        if track.last_xyxy is None:
+            track.last_xyxy = track.xyxy
+            return False
+            
+        curr_xyxy = track.xyxy
+        # Calculate movement of center point
+        prev_center = (track.last_xyxy[:2] + track.last_xyxy[2:]) / 2
+        curr_center = (curr_xyxy[:2] + curr_xyxy[2:]) / 2
+        movement = np.linalg.norm(curr_center - prev_center)
+        
+        if movement < self.static_movement_threshold:
+            track.static_frames += 1
+        else:
+            track.static_frames = 0
+            
+        track.last_xyxy = curr_xyxy
+        
+        # If stuck for too long, it's likely a ghost in a dynamic scene like dance
+        return track.static_frames > self.static_threshold
+
     @BaseTracker.setup_decorator
     @BaseTracker.per_class_decorator
     def update(
@@ -264,6 +336,27 @@ class PreloadSort(BaseTracker):
         self.frame_count += 1
 
         activated_stracks, refind_stracks, lost_stracks, removed_stracks = [], [], [], []
+
+        # 1. Periodic Re-authentication & Ghost Killing
+        remaining_active = []
+        for track in self.active_tracks:
+            # Ghost check
+            if self._check_ghost_track(track):
+                LOGGER.info(f"Ghost track {track.id} removed (static for {track.static_frames} frames)")
+                track.mark_removed()
+                removed_stracks.append(track)
+                continue
+                
+            # Periodic identity re-verification
+            if self.frame_count - track.last_reauth_frame >= self.reverify_interval:
+                if not self._reverify_track(track, img):
+                    track.mark_removed()
+                    removed_stracks.append(track)
+                    continue
+                track.last_reauth_frame = self.frame_count
+            
+            remaining_active.append(track)
+        self.active_tracks = remaining_active
 
         # Preprocess detections
         dets, dets_first, embs_first, dets_second = self._split_detections(dets, embs)
@@ -429,6 +522,52 @@ class PreloadSort(BaseTracker):
             else:
                 track.re_activate(det, self.frame_count, new_id=False)
                 refind_stracks.append(track)
+        
+        # 3. Soft Re-detection for unmatched tracks (Occlusion handling)
+        # For remaining let tracks, try to find them in the image even if detector missed them
+        remaining_u_track = u_track
+        for itracked in remaining_u_track:
+            track = strack_pool[itracked]
+            if not hasattr(track, 'registered_id') or track.registered_id is None:
+                continue
+                
+            # Scan around predicted location
+            pred_xyxy = track.xyxy
+            h, w = img.shape[:2]
+            # Add some margin for the scan
+            margin = 0.1
+            bw, bh = pred_xyxy[2] - pred_xyxy[0], pred_xyxy[3] - pred_xyxy[1]
+            x1 = max(0, int(pred_xyxy[0] - bw * margin))
+            y1 = max(0, int(pred_xyxy[1] - bh * margin))
+            x2 = min(w, int(pred_xyxy[2] + bw * margin))
+            y2 = min(h, int(pred_xyxy[3] + bh * margin))
+            
+            if x2 <= x1 or y2 <= y1:
+                continue
+                
+            roi = img[y1:y2, x1:x2]
+            bbox = np.array([[0, 0, roi.shape[1], roi.shape[0]]])
+            current_emb = self.model.get_features(bbox, roi)[0]
+            current_emb /= np.linalg.norm(current_emb)
+            
+            reg_embs = self.registered_ids.get(track.registered_id, [])
+            max_sim = -1
+            for reg_emb in reg_embs:
+                sim = np.dot(current_emb, reg_emb)
+                if sim > max_sim:
+                    max_sim = sim
+            
+            # If high similarity, "revive" the track even without detector
+            # Use stricter threshold for detector-less recovery
+            recovery_thresh = self.match_threshold * 1.1 
+            if max_sim >= recovery_thresh:
+                # Create a pseudo-detection to update the track
+                pseudo_det = np.array([x1, y1, x2, y2, max_sim, track.cls, -1])
+                pseudo_track = STrack(pseudo_det, current_emb, max_obs=self.max_obs)
+                track.update(pseudo_track, self.frame_count)
+                activated_stracks.append(track)
+                # Note: Not removing from u_track to avoid loop issues, 
+                # but it's now in activated_stracks so it will be in output
 
         return matches, u_track, u_detection
 

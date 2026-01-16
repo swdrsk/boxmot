@@ -31,6 +31,12 @@ class STrack(BaseTrack):
         self.smooth_feat = None
         self.curr_feat = None
         self.alpha = 0.9
+        
+        # New properties for optimization
+        self.registered_id = None
+        self.last_reauth_frame = 0
+        self.static_frames = 0
+        self.last_xyxy = None
 
         # Update initial class and features
         self.update_cls(self.cls, self.conf)
