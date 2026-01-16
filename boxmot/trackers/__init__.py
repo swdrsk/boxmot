@@ -5,3 +5,4 @@ from boxmot.trackers.deepocsort.deepocsort import DeepOcSort
 from boxmot.trackers.hybridsort.hybridsort import HybridSort
 from boxmot.trackers.ocsort.ocsort import OcSort
 from boxmot.trackers.strongsort.strongsort import StrongSort
+from boxmot.trackers.simplepresort.simplepresort import SimplePreSort

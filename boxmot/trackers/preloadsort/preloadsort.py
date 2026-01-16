@@ -77,6 +77,8 @@ class PreloadSort(BaseTracker):
         # PreloadSort-specific parameters
         registered_images_path: Path = None,
         match_threshold: float = 0.5,
+        enable_scene_change_detection: bool = False,  # デフォルトで無効
+        scene_change_threshold: float = 0.3,
         # BotSort-specific parameters
         track_high_thresh: float = 0.5,
         track_low_thresh: float = 0.1,
@@ -125,8 +127,9 @@ class PreloadSort(BaseTracker):
         self.match_threshold = match_threshold
         
         # Scene change detection
+        self.enable_scene_change_detection = enable_scene_change_detection
         self.prev_frame = None
-        self.scene_change_threshold = 0.3  # Threshold for detecting scene change
+        self.scene_change_threshold = scene_change_threshold
         
         # Optimization settings
         self.reverify_interval = 10  # Frames
@@ -197,56 +200,23 @@ class PreloadSort(BaseTracker):
                 return track
         return None
     
-    def _detect_scene_change(self, img: np.ndarray, warp: np.ndarray) -> bool:
-        """
-        Detect scene change based on CMC warp matrix and frame similarity.
-        
-        Args:
-            img: Current frame
-            warp: Camera motion compensation warp matrix from CMC
-            
-        Returns:
-            True if scene change detected, False otherwise
-        """
-        # First frame
-        if self.prev_frame is None:
-            self.prev_frame = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if len(img.shape) == 3 else img.copy()
+    def _detect_scene_change(self, img: np.ndarray) -> bool:
+        """Detect scene change using frame correlation."""
+        # シーン切り替え検出が無効の場合は常にFalseを返す
+        if not self.enable_scene_change_detection:
             return False
         
-        # Check if warp matrix indicates identity (no motion compensation possible)
-        # This often happens during scene changes when feature matching fails
-        is_identity = False
-        if warp.shape == (2, 3):
-            # Affine matrix: check if it's close to identity
-            identity_affine = np.eye(2, 3, dtype=np.float32)
-            diff = np.abs(warp - identity_affine).sum()
-            is_identity = diff < 0.01
-        elif warp.shape == (3, 3):
-            # Homography matrix: check if it's close to identity
-            identity_homo = np.eye(3, 3, dtype=np.float32)
-            diff = np.abs(warp - identity_homo).sum()
-            is_identity = diff < 0.01
-        
-        # Calculate frame similarity using histogram comparison
-        curr_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if len(img.shape) == 3 else img.copy()
-        
-        # Resize for faster computation
-        prev_small = cv2.resize(self.prev_frame, (160, 90))
-        curr_small = cv2.resize(curr_gray, (160, 90))
-        
-        # Calculate histogram correlation
-        hist_prev = cv2.calcHist([prev_small], [0], None, [256], [0, 256])
-        hist_curr = cv2.calcHist([curr_small], [0], None, [256], [0, 256])
-        correlation = cv2.compareHist(hist_prev, hist_curr, cv2.HISTCMP_CORREL)
-        
-        # Update previous frame
-        self.prev_frame = curr_gray
+        if self.prev_frame is None:
+            self.prev_frame = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            return False
         
         # Scene change detected if:
-        # 1. Histogram correlation is very low (different scene)
-        # 2. OR warp matrix is identity (CMC failed, likely due to scene change)
-        scene_changed = correlation < self.scene_change_threshold or is_identity
-        
+        # 1. Correlation is below threshold, OR
+        # 2. Frames are identical (correlation = 1.0 and all pixels same)
+        curr_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        correlation = np.corrcoef(self.prev_frame.flatten(), curr_gray.flatten())[0, 1]
+        is_identity = np.array_equal(self.prev_frame, curr_gray)
+        scene_changed = correlation < self.scene_change_threshold or (correlation > 0.999 and is_identity)
         if scene_changed:
             LOGGER.warning(f"Scene change detected! (correlation: {correlation:.3f}, identity: {is_identity})")
         
@@ -489,7 +459,7 @@ class PreloadSort(BaseTracker):
         warp = self.cmc.apply(img, dets)
         
         # Detect scene change
-        if self._detect_scene_change(img, warp):
+        if self._detect_scene_change(img):
             self._reset_all_tracks()
             # Return empty matches since all tracks were reset
             return [], [], list(range(len(detections)))

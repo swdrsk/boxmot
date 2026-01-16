@@ -15,6 +15,7 @@ from boxmot.utils import TRACKER_CONFIGS
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.checks import RequirementsChecker
 from boxmot.utils.timing import TimingStats, wrap_tracker_reid
+from boxmot.utils.mot_utils import convert_to_mot_format, write_mot_results
 
 checker = RequirementsChecker()
 checker.check_packages(("ultralytics", ))  # install
@@ -81,6 +82,13 @@ def on_predict_start(predictor, args, timing_stats=None):
         
         # Add PreloadSORT-specific parameters if applicable
         if args.tracking_method == 'preloadsort':
+            if hasattr(args, 'registered_images') and args.registered_images is not None:
+                tracker_kwargs['registered_images_path'] = args.registered_images
+            if hasattr(args, 'match_threshold') and args.match_threshold is not None:
+                tracker_kwargs['match_threshold'] = args.match_threshold
+        
+        # Add SimplePreSORT-specific parameters if applicable
+        if args.tracking_method == 'simplepresort':
             if hasattr(args, 'registered_images') and args.registered_images is not None:
                 tracker_kwargs['registered_images_path'] = args.registered_images
             if hasattr(args, 'match_threshold') and args.match_threshold is not None:
@@ -173,6 +181,30 @@ def plot_trajectories(predictor, timing_stats=None, video_writer=None):
         # Save frame to video
         if video_writer is not None:
             video_writer.write(result.orig_img)
+        
+        # Save tracking results in MOT format if requested
+        if hasattr(predictor.custom_args, 'save_mot') and predictor.custom_args.save_mot:
+            if tracks is not None and len(tracks) > 0:
+                # Initialize frame counter if not exists
+                if not hasattr(predictor, 'mot_frame_counter'):
+                    predictor.mot_frame_counter = 0
+                
+                # Increment frame counter (1-based for MOT format)
+                predictor.mot_frame_counter += 1
+                frame_idx = predictor.mot_frame_counter
+                
+                # Convert tracks to MOT format
+                mot_results = convert_to_mot_format(tracks, frame_idx)
+                
+                # Determine output path
+                if not hasattr(predictor, 'mot_output_path'):
+                    project = Path(predictor.custom_args.project) if predictor.custom_args.project else Path("runs/track")
+                    name = predictor.custom_args.name if predictor.custom_args.name else "exp"
+                    save_dir = project / name
+                    predictor.mot_output_path = save_dir / "mot_results.txt"
+                
+                # Write MOT results
+                write_mot_results(predictor.mot_output_path, mot_results)
         
         # Show the frame if requested
         if predictor.custom_args.show:

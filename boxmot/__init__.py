@@ -22,6 +22,7 @@ TRACKERS = [
     "hybridsort",
     "boosttrack",
     "preloadsort",
+    "simplepresort",
 ]
 
 __all__ = (

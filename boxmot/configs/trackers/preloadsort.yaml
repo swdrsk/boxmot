@@ -4,6 +4,11 @@ match_threshold:
   default: 0.45
   range: [0.3, 0.8]
 
+enable_scene_change_detection:
+  type: choice
+  default: false
+  options: [true, false]
+
 scene_change_threshold:
   type: uniform
   default: 0.3
