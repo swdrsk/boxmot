@@ -288,7 +288,7 @@ class CommandFirstGroup(click.Group):
             formatter.write_text("tune         Optimize tracker hyperparameters")
             formatter.write_text("generate     Generate detections and embeddings")
             formatter.write_text("export       Export ReID models to different formats")
-            formatter.write_text("crop_person  Crop persons from image/video for PreloadSORT registration")
+            formatter.write_text("crop-person  Crop persons from image/video for PreloadSORT registration")
         formatter.write_paragraph()
         
         # Resources
@@ -515,13 +515,13 @@ def crop_person(ctx, source, num_persons, reid_model, folder, yolo_model, device
     Examples:
     
         # Crop from video with 5 persons
-        boxmot crop_person video.mp4 5 osnet_x0_25_msmt17 --folder ./images
+        boxmot crop-person video.mp4 5 osnet_x0_25_msmt17 --folder ./images
         
         # Crop from image
-        boxmot crop_person photo.jpg osnet_x0_25_msmt17 --folder ./images
+        boxmot crop-person photo.jpg osnet_x0_25_msmt17 --folder ./images
         
         # Custom frame sampling
-        boxmot crop_person video.mp4 3 osnet_x0_25_msmt17 --folder ./images --num-frames 30
+        boxmot crop-person video.mp4 3 osnet_x0_25_msmt17 --folder ./images --num-frames 30
     """
     from boxmot.engine.crop_person import run_crop_person
     

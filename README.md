@@ -297,19 +297,19 @@ boxmot track yolov8n osnet_x0_25_msmt17 preloadsort \
   --save --show
 ```
 
-**Registration Tool (`crop_person`):**
+**Registration Tool (`crop-person`):**
 
-To easily create the required folder structure for PreloadSORT, you can use the `crop_person` tool. This tool detects persons in an image or video and crops them into organized folders.
+To easily create the required folder structure for PreloadSORT, you can use the `crop-person` tool. This tool detects persons in an image or video and crops them into organized folders.
 
 ```bash
-# Crop 5 persons from a video (samples 20 frames by default)
-boxmot crop_person video.mp4 5 osnet_x0_25_msmt17 --folder ./images
+# Crop from video with 5 persons
+boxmot crop-person video.mp4 5 osnet_x0_25_msmt17 --folder ./images
 
-# Crop from an image (all detected persons)
-boxmot crop_person photo.jpg osnet_x0_25_msmt17 --folder ./images
+# Crop from image
+boxmot crop-person photo.jpg osnet_x0_25_msmt17 --folder ./images
 
-# Custom frame sampling and confidence
-boxmot crop_person video.mp4 3 osnet_x0_25_msmt17 --folder ./images --num-frames 30 --conf 0.6
+# Advanced usage (more frames, custom confidence)
+boxmot crop-person video.mp4 3 osnet_x0_25_msmt17 --folder ./images --num-frames 30 --conf 0.6
 ```
 
 **Registered Images Folder Structure:**

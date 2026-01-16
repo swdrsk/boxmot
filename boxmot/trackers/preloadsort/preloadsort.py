@@ -334,6 +334,7 @@ class PreloadSort(BaseTracker):
     ) -> np.ndarray:
         self.check_inputs(dets, img, embs)
         self.frame_count += 1
+        self.excluded_detections = []
 
         activated_stracks, refind_stracks, lost_stracks, removed_stracks = [], [], [], []
 
@@ -382,6 +383,7 @@ class PreloadSort(BaseTracker):
         # Filter detections: only keep those matched with registered images
         filtered_indices = list(det_to_registered.keys())
         filtered_detections = [detections[i] for i in filtered_indices]
+        self.excluded_detections = [detections[i] for i in range(len(detections)) if i not in det_to_registered]
         
         # If no registered persons detected, return empty
         if len(filtered_detections) == 0:
@@ -523,51 +525,6 @@ class PreloadSort(BaseTracker):
                 track.re_activate(det, self.frame_count, new_id=False)
                 refind_stracks.append(track)
         
-        # 3. Soft Re-detection for unmatched tracks (Occlusion handling)
-        # For remaining let tracks, try to find them in the image even if detector missed them
-        remaining_u_track = u_track
-        for itracked in remaining_u_track:
-            track = strack_pool[itracked]
-            if not hasattr(track, 'registered_id') or track.registered_id is None:
-                continue
-                
-            # Scan around predicted location
-            pred_xyxy = track.xyxy
-            h, w = img.shape[:2]
-            # Add some margin for the scan
-            margin = 0.1
-            bw, bh = pred_xyxy[2] - pred_xyxy[0], pred_xyxy[3] - pred_xyxy[1]
-            x1 = max(0, int(pred_xyxy[0] - bw * margin))
-            y1 = max(0, int(pred_xyxy[1] - bh * margin))
-            x2 = min(w, int(pred_xyxy[2] + bw * margin))
-            y2 = min(h, int(pred_xyxy[3] + bh * margin))
-            
-            if x2 <= x1 or y2 <= y1:
-                continue
-                
-            roi = img[y1:y2, x1:x2]
-            bbox = np.array([[0, 0, roi.shape[1], roi.shape[0]]])
-            current_emb = self.model.get_features(bbox, roi)[0]
-            current_emb /= np.linalg.norm(current_emb)
-            
-            reg_embs = self.registered_ids.get(track.registered_id, [])
-            max_sim = -1
-            for reg_emb in reg_embs:
-                sim = np.dot(current_emb, reg_emb)
-                if sim > max_sim:
-                    max_sim = sim
-            
-            # If high similarity, "revive" the track even without detector
-            # Use stricter threshold for detector-less recovery
-            recovery_thresh = self.match_threshold * 1.1 
-            if max_sim >= recovery_thresh:
-                # Create a pseudo-detection to update the track
-                pseudo_det = np.array([x1, y1, x2, y2, max_sim, track.cls, -1])
-                pseudo_track = STrack(pseudo_det, current_emb, max_obs=self.max_obs)
-                track.update(pseudo_track, self.frame_count)
-                activated_stracks.append(track)
-                # Note: Not removing from u_track to avoid loop issues, 
-                # but it's now in activated_stracks so it will be in output
 
         return matches, u_track, u_detection
 

@@ -24,6 +24,9 @@ class BaseVisualization(ABC):
         target_id = getattr(self, "target_id", None)
         if target_id is not None:
             return (0, 255, 0) if id == target_id else (0, 0, 0)
+        
+        if state == "excluded":
+            return (180, 180, 180) # Light gray
 
         # Default: consistent hashed color for other IDs
         hash_object = hashlib.sha256(str(id).encode())
@@ -80,9 +83,13 @@ class BaseVisualization(ABC):
                 thickness=thickness,
             )
 
+            label = f"id: {int(id)}, conf: {conf:.2f}, c: {int(cls)}, a: {box[4]:.2f}"
+            if state == "excluded":
+                label = f"excluded, c: {int(cls)}"
+
             img = cv.putText(
                 img,
-                f"id: {int(id)}, conf: {conf:.2f}, c: {int(cls)}, a: {box[4]:.2f}",
+                label,
                 (int(box[0]), int(box[1]) - 10),
                 cv.FONT_HERSHEY_SIMPLEX,
                 fontscale,
@@ -101,9 +108,13 @@ class BaseVisualization(ABC):
                     color,
                     thickness,
                 )
+            label = f"id: {int(id)}, conf: {conf:.2f}, c: {int(cls)}"
+            if state == "excluded":
+                label = f"excluded, c: {int(cls)}"
+
             img = cv.putText(
                 img,
-                f"id: {int(id)}, conf: {conf:.2f}, c: {int(cls)}",
+                label,
                 (x1, max(0, y1 - 10)),
                 cv.FONT_HERSHEY_SIMPLEX,
                 fontscale,
@@ -184,10 +195,14 @@ class BaseVisualization(ABC):
         pass
 
     def _draw_track(self, img, a, forced_state, style, thickness, fontscale, show_trajectories):
-        if not getattr(a, "history_observations", None):
-            return img
-
         state = forced_state or self._infer_state(a)
+        if state is None:
+            return img  # e.g., below min_hits
+
+        # Handle tracks/detections with empty history (like newly created excluded detections)
+        has_history = getattr(a, "history_observations", None)
+        if not has_history and not hasattr(a, "xyxy"):
+            return img
         if state is None:
             return img  # e.g., below min_hits
 
@@ -203,8 +218,10 @@ class BaseVisualization(ABC):
                     box = box[0]
             else:
                 box = a.history_observations[-1]
-        else:
+        elif has_history:
             box = a.history_observations[-1]
+        else:
+            box = a.xyxy
 
         conf = getattr(a, "conf", 1.0)
         cls = getattr(a, "cls", -1)
@@ -214,7 +231,7 @@ class BaseVisualization(ABC):
             box=box,
             conf=conf,
             cls=cls,
-            id=int(getattr(a, "id")),
+            id=int(getattr(a, "id", -1)),
             thickness=thickness,
             fontscale=fontscale,
             state=state,
@@ -279,6 +296,11 @@ class ExplicitStateVisualization(BaseVisualization):
         # Lost (dashed, orange)
         if lost_list:
             yield (list(lost_list), "predicted", "dashed")
+
+        # Excluded (light gray, solid)
+        excluded_list = getattr(self, "excluded_detections", None)
+        if excluded_list:
+            yield (list(excluded_list), "excluded", "solid")
 
         # Removed (gray, solid), with TTL + tombstone
         if removed_list and ttl > 0:

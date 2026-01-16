@@ -67,6 +67,7 @@ class BaseTracker(VisualizationMixin):
         # Attributes
         self.frame_count = 0
         self.active_tracks = []  # This might be handled differently in derived classes
+        self.excluded_detections = []
 
         self.per_class_active_tracks = None
         self._first_frame_processed = (
