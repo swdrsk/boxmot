@@ -283,11 +283,12 @@ class CommandFirstGroup(click.Group):
         # Available modes
         formatter.write_text("Modes:")
         with formatter.indentation():
-            formatter.write_text("track      Track objects in video/webcam stream")
-            formatter.write_text("eval       Evaluate tracker performance on MOT dataset")
-            formatter.write_text("tune       Optimize tracker hyperparameters")
-            formatter.write_text("generate   Generate detections and embeddings")
-            formatter.write_text("export     Export ReID models to different formats")
+            formatter.write_text("track        Track objects in video/webcam stream")
+            formatter.write_text("eval         Evaluate tracker performance on MOT dataset")
+            formatter.write_text("tune         Optimize tracker hyperparameters")
+            formatter.write_text("generate     Generate detections and embeddings")
+            formatter.write_text("export       Export ReID models to different formats")
+            formatter.write_text("crop_person  Crop persons from image/video for PreloadSORT registration")
         formatter.write_paragraph()
         
         # Resources
@@ -490,6 +491,50 @@ def version():
     """Display the current BoxMOT version."""
     from boxmot import __version__
     click.echo(f"BoxMOT {__version__}")
+
+
+@boxmot.command(help='Crop persons from image/video for PreloadSORT registration')
+@click.argument('source', type=click.Path(exists=True))
+@click.argument('num_persons', type=int, required=False)
+@click.argument('reid_model', type=str)
+@click.option('--folder', type=click.Path(), required=True,
+              help='Output folder for cropped images')
+@click.option('--yolo-model', type=str, default='yolo11n',
+              help='YOLO model for person detection')
+@click.option('--device', type=str, default='',
+              help='Device to use (cuda/cpu, default: auto)')
+@click.option('--conf', type=float, default=0.5,
+              help='Confidence threshold for detection')
+@click.option('--num-frames', type=int, default=20,
+              help='Number of frames to sample from video (default: 20)')
+@click.pass_context
+def crop_person(ctx, source, num_persons, reid_model, folder, yolo_model, device, conf, num_frames):
+    """
+    Crop persons from image or video for PreloadSORT registration.
+    
+    Examples:
+    
+        # Crop from video with 5 persons
+        boxmot crop_person video.mp4 5 osnet_x0_25_msmt17 --folder ./images
+        
+        # Crop from image
+        boxmot crop_person photo.jpg osnet_x0_25_msmt17 --folder ./images
+        
+        # Custom frame sampling
+        boxmot crop_person video.mp4 3 osnet_x0_25_msmt17 --folder ./images --num-frames 30
+    """
+    from boxmot.engine.crop_person import run_crop_person
+    
+    run_crop_person(
+        source=source,
+        num_persons=num_persons,
+        reid_model=reid_model,
+        folder=folder,
+        yolo_model=yolo_model,
+        device=device,
+        conf=conf,
+        num_frames=num_frames
+    )
 
 
 @boxmot.command(help='Show help information')
