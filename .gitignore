@@ -66,3 +66,4 @@ boxmot/motion/cmc/*.jpg
 plans/
 *.mp4
 *.png
+*.sh

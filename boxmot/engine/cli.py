@@ -507,10 +507,12 @@ def version():
               help='Device to use (cuda/cpu, default: auto)')
 @click.option('--conf', type=float, default=0.5,
               help='Confidence threshold for detection')
-@click.option('--num-frames', type=int, default=20,
-              help='Number of frames to sample from video (default: 20)')
+@click.option('--num-frames', type=int, default=300,
+              help='Number of frames to sample from video (default: 300)')
+@click.option('--num-samples', type=int, default=10,
+              help='Output images per person (default: 10)')
 @click.pass_context
-def crop_person(ctx, source, num_persons, reid_model, folder, yolo_model, device, conf, num_frames):
+def crop_person(ctx, source, num_persons, reid_model, folder, yolo_model, device, conf, num_frames, num_samples):
     """
     Crop persons from image or video for PreloadSORT registration.
     
@@ -535,7 +537,8 @@ def crop_person(ctx, source, num_persons, reid_model, folder, yolo_model, device
         yolo_model=yolo_model,
         device=device,
         conf=conf,
-        num_frames=num_frames
+        num_frames=num_frames,
+        num_samples=num_samples
     )
 
 
