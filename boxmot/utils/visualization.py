@@ -19,7 +19,9 @@ class BaseVisualization(ABC):
         state: str = "confirmed"
     ) -> tuple:
         """
-        Returns green for target_id, otherwise generates a consistent unique BGR color using ID hashing.
+        Returns green for target_id, otherwise generates a consistent unique BGR color.
+        For small IDs (0-16), uses evenly distributed hues for better distinction.
+        For larger IDs, uses ID hashing for consistency.
         """
         target_id = getattr(self, "target_id", None)
         if target_id is not None:
@@ -28,10 +30,16 @@ class BaseVisualization(ABC):
         if state == "excluded":
             return (180, 180, 180) # Light gray
 
-        # Default: consistent hashed color for other IDs
-        hash_object = hashlib.sha256(str(id).encode())
-        hash_digest = hash_object.hexdigest()
-        hue = int(hash_digest[:8], 16) / 0xFFFFFFFF
+        # For small IDs, use evenly distributed hues for better color distinction
+        if id <= 16:
+            # Distribute hues evenly across the color spectrum
+            # Using golden ratio for better visual distribution
+            hue = (id * 0.618033988749895) % 1.0
+        else:
+            # For larger IDs, use consistent hashed color
+            hash_object = hashlib.sha256(str(id).encode())
+            hash_digest = hash_object.hexdigest()
+            hue = int(hash_digest[:8], 16) / 0xFFFFFFFF
 
         # Convert HSV to RGB
         rgb = colorsys.hsv_to_rgb(hue, saturation, value)
