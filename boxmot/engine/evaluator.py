@@ -43,9 +43,12 @@ from boxmot.detectors import (
     is_ultralytics_model,
     is_yolox_model,
 )
-from boxmot.utils.mot_utils import convert_to_mot_format, write_mot_results
+from boxmot.utils.mot_utils import convert_to_mot_format, write_mot_results, SectionManager
 from boxmot.reid.core.auto_backend import ReidAutoBackend
 from boxmot.utils.download import download_eval_data, download_trackeval
+from boxmot.utils import configure_logging as _configure_logging
+from boxmot.postprocessing.gsi import gsi
+from boxmot.postprocessing.gbrc import gbrc
 
 checker = RequirementsChecker()
 checker.check_packages(('ultralytics', ))  # install
@@ -443,6 +446,8 @@ def process_sequence(seq_name: str,
         target_fps=target_fps
     )
     sequence = dataset.get_sequence(seq_name)
+    
+    section_manager = SectionManager()
 
     all_tracks = []
     kept_frame_ids = []
@@ -457,14 +462,12 @@ def process_sequence(seq_name: str,
         if dets.size and embs.size:
             tracks = tracker.update(dets, img, embs)
             if tracks.size:
-                all_tracks.append(convert_to_mot_format(tracks, fid))
+                all_tracks.append(convert_to_mot_format(tracks, fid, section_manager=section_manager))
 
     out_arr = np.vstack(all_tracks) if all_tracks else np.empty((0, 0))
     write_mot_results(Path(exp_folder) / f"{seq_name}.txt", out_arr)
     return seq_name, kept_frame_ids
 
-
-from boxmot.utils import configure_logging as _configure_logging
 
 def _worker_init():
     # each spawned process needs its own sinks
@@ -518,12 +521,10 @@ def run_generate_mot_results(opt: argparse.Namespace, evolve_config: dict = None
     # Optional GSI postprocessing
     if getattr(opt, "postprocessing", "none") == "gsi":
         LOGGER.opt(colors=True).info("<cyan>[3b/4]</cyan> Applying GSI postprocessing...")
-        from boxmot.postprocessing.gsi import gsi
         gsi(mot_results_folder=exp_dir)
 
     elif getattr(opt, "postprocessing", "none") == "gbrc":
         LOGGER.opt(colors=True).info("<cyan>[3b/4]</cyan> Applying GBRC postprocessing...")
-        from boxmot.postprocessing.gbrc import gbrc
         gbrc(mot_results_folder=exp_dir)
 
 

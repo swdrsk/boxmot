@@ -13,6 +13,30 @@ from ultralytics.utils import ops
 from boxmot.utils import logger as LOGGER
 
 
+class SectionManager:
+    """
+    Manages section IDs for tracking results.
+    A 'section' is defined as a continuous sequence of frames where the same ID is tracked.
+    If a gap occurs in the tracking of an ID, a new section ID is assigned.
+    """
+    def __init__(self):
+        self.last_seen = {}       # track_id -> last frame_idx
+        self.track_section_ids = {} # track_id -> current section_id
+        self.next_side_id = 1
+
+    def get_section_id(self, track_id: int, frame_idx: int) -> int:
+        """
+        Retrieves or creates a section ID for a given track ID and frame index.
+        """
+        if track_id not in self.last_seen or frame_idx != self.last_seen[track_id] + 1:
+            # New track or gap detected
+            self.track_section_ids[track_id] = self.next_side_id
+            self.next_side_id += 1
+        
+        self.last_seen[track_id] = frame_idx
+        return self.track_section_ids[track_id]
+
+
 def split_dataset(src_fldr: Path, percent_to_delete: float = 0.5) -> Tuple[Path, str]:
     """
     Copies the dataset to a new location and removes a specified percentage of images and annotations,
@@ -90,7 +114,7 @@ def split_dataset(src_fldr: Path, percent_to_delete: float = 0.5) -> Tuple[Path,
 
 
 def convert_to_mot_format(
-    results: Union[Results, np.ndarray], frame_idx: int
+    results: Union[Results, np.ndarray], frame_idx: int, section_manager: SectionManager = None
 ) -> np.ndarray:
     """
     Converts tracking results for a single frame into MOT challenge format.
@@ -121,6 +145,14 @@ def convert_to_mot_format(
                 results[:, 6].astype(np.int32) + 1,  # class
                 results[:, 5],  # confidence (float)
             ))
+            
+            if section_manager is not None:
+                section_ids = np.array([
+                    section_manager.get_section_id(tid, frame_idx) 
+                    for tid in results[:, 4]
+                ], dtype=np.int32).reshape(-1, 1)
+                mot_results = np.column_stack((mot_results, section_ids))
+                
             return mot_results
         else:
             # Convert ultralytics results to MOT format
@@ -135,9 +167,16 @@ def convert_to_mot_format(
                 not_ignored, # "not ignored"
                 results.boxes.cls.unsqueeze(1).astype(np.int32) + 1, # class
                 results.boxes.conf.unsqueeze(1).astype(np.float32), # confidence (float)
-            ], dim=1)
+            ], dim=1).numpy()
 
-            return mot_results.numpy()
+            if section_manager is not None:
+                section_ids = np.array([
+                    section_manager.get_section_id(int(tid), frame_idx + 1) 
+                    for tid in mot_results[:, 1]
+                ], dtype=np.int32).reshape(-1, 1)
+                mot_results = np.column_stack((mot_results, section_ids))
+
+            return mot_results
 
 
 def write_mot_results(txt_path: Path, mot_results: np.ndarray) -> None:
@@ -161,7 +200,10 @@ def write_mot_results(txt_path: Path, mot_results: np.ndarray) -> None:
         if mot_results.size != 0:
             # Open the file in append mode and save the MOT results
             with open(str(txt_path), "a") as file:
-                np.savetxt(file, mot_results, fmt="%d,%d,%d,%d,%d,%d,%d,%d,%.6f")
+                fmt = "%d,%d,%d,%d,%d,%d,%d,%d,%.6f"
+                if mot_results.shape[1] == 10:
+                    fmt += ",%d"
+                np.savetxt(file, mot_results, fmt=fmt)
 
 
 # new_folder, name = split_dataset(Path("./boxmot/engine/trackeval/data/MOT20/train"), percent_to_delete=0.5)

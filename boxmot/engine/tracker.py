@@ -15,7 +15,7 @@ from boxmot.utils import TRACKER_CONFIGS
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.checks import RequirementsChecker
 from boxmot.utils.timing import TimingStats, wrap_tracker_reid
-from boxmot.utils.mot_utils import convert_to_mot_format, write_mot_results
+from boxmot.utils.mot_utils import convert_to_mot_format, write_mot_results, SectionManager
 
 checker = RequirementsChecker()
 checker.check_packages(("ultralytics", ))  # install
@@ -193,8 +193,14 @@ def plot_trajectories(predictor, timing_stats=None, video_writer=None):
                 predictor.mot_frame_counter += 1
                 frame_idx = predictor.mot_frame_counter
                 
+                # Initialize section manager if not exists
+                if not hasattr(predictor, 'mot_section_manager'):
+                    predictor.mot_section_manager = SectionManager()
+                
                 # Convert tracks to MOT format
-                mot_results = convert_to_mot_format(tracks, frame_idx)
+                mot_results = convert_to_mot_format(
+                    tracks, frame_idx, section_manager=predictor.mot_section_manager
+                )
                 
                 # Determine output path
                 if not hasattr(predictor, 'mot_output_path'):
