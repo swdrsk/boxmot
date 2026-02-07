@@ -5,7 +5,7 @@ import yaml
 
 from boxmot.utils import TRACKER_CONFIGS
 
-REID_TRACKERS = ["strongsort", "botsort", "deepocsort", "hybridsort", "boosttrack", "preloadsort", "simplepresort"]
+REID_TRACKERS = ["strongsort", "botsort", "deepocsort", "hybridsort", "boosttrack", "preloadsort", "simplepresort", "preloadsfsort"]
 
 TRACKER_MAPPING = {
     "strongsort": "boxmot.trackers.strongsort.strongsort.StrongSort",
@@ -18,6 +18,7 @@ TRACKER_MAPPING = {
     "boosttrack": "boxmot.trackers.boosttrack.boosttrack.BoostTrack",
     "preloadsort": "boxmot.trackers.preloadsort.preloadsort.PreloadSort",
     "simplepresort": "boxmot.trackers.simplepresort.simplepresort.SimplePreSort",
+    "preloadsfsort": "boxmot.trackers.preloadsfsort.preloadsfsort.PreloadSFSORT",
 }
 
 
@@ -98,6 +99,13 @@ def create_tracker(
     
     # SimplePreSORT-specific parameters
     if tracker_type == "simplepresort":
+        if registered_images_path is not None:
+            tracker_args["registered_images_path"] = registered_images_path
+        if match_threshold is not None:
+            tracker_args["match_threshold"] = match_threshold
+    
+    # PreloadSFSORT-specific parameters
+    if tracker_type == "preloadsfsort":
         if registered_images_path is not None:
             tracker_args["registered_images_path"] = registered_images_path
         if match_threshold is not None:

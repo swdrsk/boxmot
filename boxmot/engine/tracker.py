@@ -88,6 +88,13 @@ def on_predict_start(predictor, args, timing_stats=None):
             if hasattr(args, 'match_threshold') and args.match_threshold is not None:
                 tracker_kwargs['match_threshold'] = args.match_threshold
         
+        # Add PreloadSFSORT-specific parameters if applicable
+        if args.tracking_method == 'preloadsfsort':
+            if hasattr(args, 'registered_images') and args.registered_images is not None:
+                tracker_kwargs['registered_images_path'] = args.registered_images
+            if hasattr(args, 'match_threshold') and args.match_threshold is not None:
+                tracker_kwargs['match_threshold'] = args.match_threshold
+        
         tracker = create_tracker(**tracker_kwargs)
         
         # set target_id if user passed it

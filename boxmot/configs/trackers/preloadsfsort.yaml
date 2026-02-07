@@ -1,0 +1,51 @@
+# PreloadSFSORT固有パラメータ
+match_threshold:
+  type: uniform
+  default: 0.5
+  range: [0.3, 0.8]
+
+# SFSORTパラメータ
+high_th:
+  type: uniform
+  default: 0.6
+  range: [0.3, 0.8]
+
+match_th_first:
+  type: uniform
+  default: 0.67
+  range: [0.5, 0.8]
+
+new_track_th:
+  type: uniform
+  default: 0.7
+  range: [0.5, 0.9]
+
+low_th:
+  type: uniform
+  default: 0.1
+  range: [0.05, 0.3]
+
+match_th_second:
+  type: uniform
+  default: 0.3
+  range: [0.2, 0.5]
+
+dynamic_tuning:
+  type: choice
+  default: false
+  options: [true, false]
+
+cth:
+  type: uniform
+  default: 0.5
+  range: [0.3, 0.8]
+
+marginal_timeout:
+  type: randint
+  default: 30
+  range: [10, 100]
+
+central_timeout:
+  type: randint
+  default: 30
+  range: [10, 100]

@@ -81,7 +81,7 @@ def core_options(func):
         click.option('--ci', is_flag=True,
                      help='reuse existing runs in CI (no UI)'),
         click.option('--tracking-method', type=str, default='deepocsort',
-                     help='deepocsort, botsort, strongsort, preloadsort, ...'),
+                     help='deepocsort, botsort, strongsort, preloadsort, preloadsfsort, ...'),
         click.option('--verbose', is_flag=True,
                      help='print detailed logs'),
         click.option('--agnostic-nms', is_flag=True,

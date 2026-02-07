@@ -12,6 +12,7 @@ from boxmot.trackers.hybridsort.hybridsort import HybridSort
 from boxmot.trackers.ocsort.ocsort import OcSort
 from boxmot.trackers.sfsort.sfsort import SFSORT
 from boxmot.trackers.strongsort.strongsort import StrongSort
+from boxmot.trackers.preloadsfsort.preloadsfsort import PreloadSFSORT
 from boxmot.trackers.tracker_zoo import create_tracker, get_tracker_config
 
 TRACKERS = [
@@ -25,6 +26,7 @@ TRACKERS = [
     "sfsort",
     "preloadsort",
     "simplepresort",
+    "preloadsfsort",
 ]
 
 __all__ = (
@@ -37,6 +39,7 @@ __all__ = (
     "HybridSort",
     "BoostTrack",
     "SFSORT",
+    "PreloadSFSORT",
     "create_tracker",
     "get_tracker_config",
     "gsi",
