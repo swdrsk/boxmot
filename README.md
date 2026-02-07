@@ -49,13 +49,14 @@
 <!-- START TRACKER TABLE -->
 | Tracker | Status  | HOTA↑ | MOTA↑ | IDF1↑ | FPS |
 | :-----: | :-----: | :---: | :---: | :---: | :---: |
-| [botsort](https://arxiv.org/abs/2206.14651) | ✅ | 69.418 | 78.232 | 81.812 | 46 |
-| [boosttrack](https://arxiv.org/abs/2408.13003) | ✅ | 69.254 | 75.921 | 83.205 | 25 |
-| [strongsort](https://arxiv.org/abs/2202.13514) | ✅ | 68.05 | 76.185 | 80.763 | 17 |
+| [botsort](https://arxiv.org/abs/2206.14651) | ✅ | 69.418 | 78.232 | 81.812 | 12 |
+| [boosttrack](https://arxiv.org/abs/2408.13003) | ✅ | 69.253 | 75.914 | 83.206 | 13 |
+| [strongsort](https://arxiv.org/abs/2202.13514) | ✅ | 68.05 | 76.185 | 80.763 | 11 |
 | [deepocsort](https://arxiv.org/abs/2302.11813) | ✅ | 67.796 | 75.868 | 80.514 | 12 |
-| [bytetrack](https://arxiv.org/abs/2110.06864) | ✅ | 67.68 | 78.039 | 79.157 | 1265 |
+| [bytetrack](https://arxiv.org/abs/2110.06864) | ✅ | 67.68 | 78.039 | 79.157 | 720 |
 | [hybridsort](https://arxiv.org/abs/2308.00783) | ✅ | 67.39 | 74.127 | 79.105 | 25 |
-| [ocsort](https://arxiv.org/abs/2203.14360) | ✅ | 66.441 | 74.548 | 77.899 | 1483 |
+| [ocsort](https://arxiv.org/abs/2203.14360) | ✅ | 66.441 | 74.548 | 77.899 | 890 |
+| [sfsort](https://arxiv.org/pdf/2404.07553) | ✅ | 62.653 | 76.87 | 69.184 | 6000 |
 
 <!-- END TRACKER TABLE -->
 
@@ -87,7 +88,7 @@ Where:
   MODE      (required) one of [track, eval, tune, generate, export]
   DETECTOR  (optional) YOLO model like yolov8n, yolov9c, yolo11m, yolox_x
   REID      (optional) ReID model like osnet_x0_25_msmt17, mobilenetv2_x1_4
-  TRACKER   (optional) one of [deepocsort, botsort, bytetrack, strongsort, ocsort, hybridsort, boosttrack, preloadsort]
+  TRACKER   (optional) one of [deepocsort, botsort, bytetrack, strongsort, ocsort, hybridsort, boosttrack, preloadsort, sfsort]
   ARGS      (optional) 'arg=value' pairs that override defaults
 ```
 
@@ -105,8 +106,8 @@ boxmot eval yolox_x_MOT17_ablation lmbn_n_duke botsort --source MOT17-ablation
 # Evaluate on MOT dataset + GBRC postprocessing
 boxmot eval yolox_x_MOT17_ablation lmbn_n_duke botsort --source MOT17-ablation --postprocessing gbrc
 
-# Tune ocsort's hyperparameters for dancetrack
-boxmot tune yolox_x_dancetrack_ablation lmbn_n_duke ocsort --source dancetrack-ablation --n-trials 10
+# Tune ocsort's hyperparameters for visdrone
+boxmot tune yolox_x_dancetrack_ablation lmbn_n_duke ocsort --source visdrone-ablation --n-trials 10
 
 # Export ReID model with dynamic sized input
 boxmot export --weights osnet_x0_25_msmt17.pt --include onnx --include engine dynamic
@@ -215,6 +216,7 @@ boxmot track yolov8n osnet_x0_25_msmt17 hybridsort
 
 # PreloadSORT: Track only pre-registered persons
 boxmot track yolov8n osnet_x0_25_msmt17 preloadsort --registered-images ./images --match-threshold 0.5
+boxmot track yolov8n osnet_x0_25_msmt17 sfsort
 ```
 
 </details>
