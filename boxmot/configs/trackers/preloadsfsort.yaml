@@ -4,6 +4,17 @@ match_threshold:
   default: 0.5
   range: [0.3, 0.8]
 
+# ReID最適化パラメータ
+reverify_interval:
+  type: randint
+  default: 60
+  range: [10, 60]
+
+overlap_iou_threshold:
+  type: uniform
+  default: 0.3
+  range: [0.1, 0.5]
+
 # SFSORTパラメータ
 high_th:
   type: uniform

@@ -99,6 +99,9 @@ class PreloadSFSORT(BaseTracker):
         # PreloadSFSORT固有パラメータ
         registered_images_path: Path = None,
         match_threshold: float = 0.5,
+        # ReID最適化パラメータ
+        reverify_interval: int = 30,  # 再確認間隔（フレーム数）
+        overlap_iou_threshold: float = 0.3,  # 交差検出のIoU閾値
         # SFSORT固有パラメータ
         high_th: float = 0.6,
         match_th_first: float = 0.67,
@@ -161,6 +164,12 @@ class PreloadSFSORT(BaseTracker):
         self.id_counter = 0
         self.active_tracks: list[Track] = []
         self.lost_stracks: list[Track] = []
+
+        # ReID最適化パラメータ
+        self.reverify_interval = reverify_interval
+        self.overlap_iou_threshold = overlap_iou_threshold
+        self.track_last_verified: dict[int, int] = {}  # {track_id: last_verified_frame}
+        self.recovered_tracks: set[int] = set()  # ロストから復帰したトラックID
 
         # PreloadSFSORT固有: ReIDモデルと事前登録画像
         self.match_threshold = match_threshold
@@ -244,7 +253,7 @@ class PreloadSFSORT(BaseTracker):
     @BaseTracker.setup_decorator
     @BaseTracker.per_class_decorator
     def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray | None = None) -> np.ndarray:
-        """フレームを処理し、トラック情報を更新."""
+        """フレームを処理し、トラック情報を更新（ReID最適化版）."""
         self.check_inputs(dets=dets, img=img, embs=embs)
         if self.is_obb:
             raise AssertionError("PreloadSFSORT does not support OBB detections")
@@ -259,25 +268,8 @@ class PreloadSFSORT(BaseTracker):
         classes = dets[:, 5] if dets.size else np.empty((0,))
         det_inds = np.arange(len(dets)) if dets.size else np.empty((0,), dtype=int)
 
-        # ReID特徴量の抽出
-        if dets.size and len(boxes) > 0:
-            features = self.model.get_features(boxes, img)
-            # 正規化
-            features = np.array([f / np.linalg.norm(f) if np.linalg.norm(f) > 0 else f for f in features])
-        else:
-            features = np.empty((0, 512))  # デフォルトの特徴量次元
-
-        # 事前登録画像とのマッチング
-        det_to_registered = {}  # {det_idx: (registered_id, similarity)}
-        for idx, feat in enumerate(features):
-            reg_id, sim = self._match_detection_with_registered(feat)
-            if reg_id is not None:
-                det_to_registered[idx] = (reg_id, sim)
-
-        # フィルタリング: 登録済み人物にマッチした検出のみを処理
-        filtered_indices = list(det_to_registered.keys())
-        if len(filtered_indices) == 0:
-            # 登録済み人物が検出されなかった場合
+        if len(boxes) == 0:
+            # 検出がない場合
             self._purge_stale_lost_tracks()
             for track in self.active_tracks:
                 self.lost_stracks.append(track)
@@ -285,127 +277,185 @@ class PreloadSFSORT(BaseTracker):
             self.active_tracks = []
             return np.empty((0, 8), dtype=float)
 
-        filtered_boxes = boxes[filtered_indices]
-        filtered_scores = scores[filtered_indices]
-        filtered_classes = classes[filtered_indices]
-        filtered_det_inds = det_inds[filtered_indices]
-        filtered_features = features[filtered_indices]
-
         # 動的閾値の計算
-        hth, nth, mth = self._dynamic_thresholds(filtered_scores)
+        hth, nth, mth = self._dynamic_thresholds(scores)
 
         next_active_tracks: list[Track] = []
         self._purge_stale_lost_tracks()
 
         track_pool = self.active_tracks + self.lost_stracks
-        unmatched_tracks = np.array([], dtype=int)
 
-        # 高信頼度検出の処理
-        high_score_mask = filtered_scores > hth
-        if high_score_mask.any():
-            high_indices = np.where(high_score_mask)[0]
-            definite_boxes = filtered_boxes[high_score_mask]
-            definite_scores = filtered_scores[high_score_mask]
-            definite_classes = filtered_classes[high_score_mask]
-            definite_det_inds = filtered_det_inds[high_score_mask]
+        # ========================================
+        # ステップ1: IoUベースのマッチング（ReIDなし）
+        # ========================================
+        matched_track_indices = set()
+        matched_det_indices = set()
+        recovered_track_ids = set()  # ロストから復帰したトラック
 
-            if track_pool:
-                cost = self.calculate_cost(track_pool, definite_boxes)
-                matches, unmatched_tracks, unmatched_detections = linear_assignment(cost, mth)
+        if track_pool and len(boxes) > 0:
+            cost = self.calculate_cost(track_pool, boxes)
+            matches, unmatched_tracks_idx, unmatched_det_idx = linear_assignment(cost, mth)
 
-                for track_idx, detection_idx in matches:
-                    track = track_pool[track_idx]
-                    track.update(
-                        definite_boxes[detection_idx],
-                        self.frame_count,
-                        definite_scores[detection_idx],
-                        definite_classes[detection_idx],
-                        definite_det_inds[detection_idx],
-                    )
-                    next_active_tracks.append(track)
-                    if track in self.lost_stracks:
-                        self.lost_stracks.remove(track)
+            for track_idx, det_idx in matches:
+                track = track_pool[track_idx]
+                was_lost = track in self.lost_stracks
 
-                for det_idx in unmatched_detections:
-                    if definite_scores[det_idx] > nth:
-                        # 新規トラック作成（事前登録IDを使用）
-                        original_filtered_idx = high_indices[det_idx]
-                        original_det_idx = filtered_indices[original_filtered_idx]
-                        reg_id, _ = det_to_registered[original_det_idx]
-
-                        # 同じ登録IDのトラックが既に存在するか確認
-                        existing_track = self._find_track_by_registered_id(reg_id)
-                        if existing_track is None:
-                            new_track = self._new_track(
-                                box=definite_boxes[det_idx],
-                                frame_id=self.frame_count,
-                                conf=definite_scores[det_idx],
-                                cls=definite_classes[det_idx],
-                                det_ind=definite_det_inds[det_idx],
-                                registered_id=reg_id,
-                            )
-                            next_active_tracks.append(new_track)
-            else:
-                # トラックプールが空の場合、新規トラックを作成
-                for det_idx, score in enumerate(definite_scores):
-                    if score > nth:
-                        original_filtered_idx = high_indices[det_idx]
-                        original_det_idx = filtered_indices[original_filtered_idx]
-                        reg_id, _ = det_to_registered[original_det_idx]
-
-                        existing_track = self._find_track_by_registered_id(reg_id)
-                        if existing_track is None:
-                            new_track = self._new_track(
-                                box=definite_boxes[det_idx],
-                                frame_id=self.frame_count,
-                                conf=definite_scores[det_idx],
-                                cls=definite_classes[det_idx],
-                                det_ind=definite_det_inds[det_idx],
-                                registered_id=reg_id,
-                            )
-                            next_active_tracks.append(new_track)
-
-        # 未マッチトラックの処理
-        unmatched_track_pool = [track_pool[idx] for idx in unmatched_tracks] if len(unmatched_tracks) else []
-        next_lost_tracks = unmatched_track_pool.copy()
-
-        # 中間信頼度検出の処理（第2段階マッチング）
-        intermediate_score_mask = np.logical_and(self.low_th < filtered_scores, filtered_scores <= hth)
-        if intermediate_score_mask.any() and len(unmatched_tracks):
-            possible_boxes = filtered_boxes[intermediate_score_mask]
-            possible_scores = filtered_scores[intermediate_score_mask]
-            possible_classes = filtered_classes[intermediate_score_mask]
-            possible_det_inds = filtered_det_inds[intermediate_score_mask]
-
-            cost = self.calculate_cost(unmatched_track_pool, possible_boxes, iou_only=True)
-            matches, _, _ = linear_assignment(cost, self.match_th_second)
-
-            for track_idx, detection_idx in matches:
-                track = unmatched_track_pool[track_idx]
                 track.update(
-                    possible_boxes[detection_idx],
+                    boxes[det_idx],
                     self.frame_count,
-                    possible_scores[detection_idx],
-                    possible_classes[detection_idx],
-                    possible_det_inds[detection_idx],
+                    scores[det_idx],
+                    classes[det_idx],
+                    det_inds[det_idx],
                 )
                 next_active_tracks.append(track)
-                if track in self.lost_stracks:
+                matched_track_indices.add(track_idx)
+                matched_det_indices.add(det_idx)
+
+                if was_lost:
                     self.lost_stracks.remove(track)
-                if track in next_lost_tracks:
-                    next_lost_tracks.remove(track)
+                    recovered_track_ids.add(track.track_id)
 
-        # 検出がなかった場合
-        if not (high_score_mask.any() or intermediate_score_mask.any()):
-            next_lost_tracks = track_pool.copy()
+            unmatched_det_indices = set(unmatched_det_idx)
+        else:
+            unmatched_det_indices = set(range(len(boxes)))
 
-        # ロストトラックの更新
-        self._update_lost_tracks(next_lost_tracks)
+        # ========================================
+        # ステップ2: 交差検出（IoUベース）
+        # ========================================
+        overlapping_track_ids = set()
+        if len(next_active_tracks) > 1:
+            overlapping_track_ids = self._detect_overlapping_tracks(next_active_tracks)
+
+        # ========================================
+        # ステップ3: ReIDが必要なトラック/検出を特定
+        # ========================================
+        # ReIDが必要な条件:
+        # (a) 新規検出（IoU未マッチ）
+        # (b) ロストから復帰したトラック
+        # (c) 一定間隔での再確認
+        # (d) 交差が検出されたトラック
+
+        need_reid_track_ids = set()
+        
+        # (b) ロストから復帰したトラック
+        need_reid_track_ids.update(recovered_track_ids)
+        
+        # (c) 一定間隔での再確認
+        for track in next_active_tracks:
+            last_verified = self.track_last_verified.get(track.track_id, 0)
+            if self.frame_count - last_verified >= self.reverify_interval:
+                need_reid_track_ids.add(track.track_id)
+        
+        # (d) 交差が検出されたトラック
+        need_reid_track_ids.update(overlapping_track_ids)
+
+        # ========================================
+        # ステップ4: 必要な場合のみReID特徴量を抽出
+        # ========================================
+        # 新規検出のReID（未マッチ検出のみ）
+        new_tracks_created = []
+        if unmatched_det_indices:
+            unmatched_indices = list(unmatched_det_indices)
+            unmatched_boxes = boxes[unmatched_indices]
+            unmatched_scores = scores[unmatched_indices]
+            unmatched_classes = classes[unmatched_indices]
+            unmatched_det_inds = det_inds[unmatched_indices]
+
+            # 新規検出のみReID特徴量を抽出
+            if len(unmatched_boxes) > 0:
+                features = self.model.get_features(unmatched_boxes, img)
+                features = np.array([f / np.linalg.norm(f) if np.linalg.norm(f) > 0 else f for f in features])
+
+                for i, (feat, score) in enumerate(zip(features, unmatched_scores)):
+                    if score > nth:
+                        reg_id, sim = self._match_detection_with_registered(feat)
+                        if reg_id is not None:
+                            # 同じ登録IDのトラックが既に存在するか確認
+                            existing_track = self._find_track_by_registered_id(reg_id)
+                            if existing_track is None:
+                                new_track = self._new_track(
+                                    box=unmatched_boxes[i],
+                                    frame_id=self.frame_count,
+                                    conf=unmatched_scores[i],
+                                    cls=unmatched_classes[i],
+                                    det_ind=unmatched_det_inds[i],
+                                    registered_id=reg_id,
+                                )
+                                new_tracks_created.append(new_track)
+                                self.track_last_verified[reg_id] = self.frame_count
+
+        next_active_tracks.extend(new_tracks_created)
+
+        # 既存トラックの再確認（必要な場合のみ）
+        if need_reid_track_ids:
+            tracks_to_verify = [t for t in next_active_tracks if t.track_id in need_reid_track_ids]
+            if tracks_to_verify:
+                verify_boxes = np.array([t.bbox for t in tracks_to_verify])
+                verify_features = self.model.get_features(verify_boxes, img)
+                verify_features = np.array([f / np.linalg.norm(f) if np.linalg.norm(f) > 0 else f for f in verify_features])
+
+                for track, feat in zip(tracks_to_verify, verify_features):
+                    reg_id, sim = self._match_detection_with_registered(feat)
+                    if reg_id is not None and reg_id == track.registered_id:
+                        # 期待通りのIDにマッチ → 確認OK
+                        self.track_last_verified[track.track_id] = self.frame_count
+                    elif reg_id is not None and reg_id != track.registered_id:
+                        # 異なるIDにマッチ → ID切り替えの可能性
+                        # 既にそのIDのトラックがなければ更新
+                        existing = self._find_track_by_registered_id(reg_id)
+                        if existing is None:
+                            track.registered_id = reg_id
+                            track.track_id = reg_id
+                            self.track_last_verified[reg_id] = self.frame_count
+                    # マッチしない場合はそのまま継続
+
+        # ========================================
+        # ステップ5: ロストトラックの処理
+        # ========================================
+        unmatched_track_pool = [track_pool[idx] for idx in range(len(track_pool)) 
+                                if idx not in matched_track_indices]
+        self._update_lost_tracks(unmatched_track_pool)
         self.active_tracks = next_active_tracks.copy()
 
         # 出力の生成
         outputs = [self._format_track(track) for track in next_active_tracks]
         return np.asarray(outputs, dtype=float) if outputs else np.empty((0, 8), dtype=float)
+
+    def _detect_overlapping_tracks(self, tracks: list[Track]) -> set[int]:
+        """重なり合っているトラックのIDを検出."""
+        overlapping_ids = set()
+        if len(tracks) < 2:
+            return overlapping_ids
+
+        boxes = np.array([t.bbox for t in tracks])
+        n = len(boxes)
+
+        for i in range(n):
+            for j in range(i + 1, n):
+                iou = self._calculate_iou(boxes[i], boxes[j])
+                if iou > self.overlap_iou_threshold:
+                    overlapping_ids.add(tracks[i].track_id)
+                    overlapping_ids.add(tracks[j].track_id)
+
+        return overlapping_ids
+
+    @staticmethod
+    def _calculate_iou(box1: np.ndarray, box2: np.ndarray) -> float:
+        """2つのボックス間のIoUを計算."""
+        x1 = max(box1[0], box2[0])
+        y1 = max(box1[1], box2[1])
+        x2 = min(box1[2], box2[2])
+        y2 = min(box1[3], box2[3])
+
+        if x2 <= x1 or y2 <= y1:
+            return 0.0
+
+        intersection = (x2 - x1) * (y2 - y1)
+        area1 = (box1[2] - box1[0]) * (box1[3] - box1[1])
+        area2 = (box2[2] - box2[0]) * (box2[3] - box2[1])
+        union = area1 + area2 - intersection
+
+        return intersection / union if union > 0 else 0.0
 
     def _dynamic_thresholds(self, scores: np.ndarray) -> tuple[float, float, float]:
         """動的閾値を計算."""
